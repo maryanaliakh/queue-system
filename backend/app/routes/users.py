@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from app.database.connection import SessionLocal
-from app.models.user import User
+from app.models.users import User
 
 router = APIRouter()
 
@@ -11,7 +11,12 @@ async def create_user():
         # test insert
         new_user = User(
             email="test@gmail.com",
-            first_name="Mariana"
+            first_name="Mariana",
+            password_hash="test123",
+            role="client",
+            language="en",
+            is_verified=False,
+            is_active=True
         )
 
         db.add(new_user)

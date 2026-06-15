@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from app.database.connection import engine
 from app.routes.users import router as test_router
 
 app = FastAPI()

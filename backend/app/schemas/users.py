@@ -26,6 +26,15 @@ class LoginResponse(BaseModel):
     role: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    login: str
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+    verification_code: str
+
+
 class VerifyRequest(BaseModel):
     login: str
     code: str
@@ -36,8 +45,18 @@ class VerifyResponse(BaseModel):
     user_id: str
 
 
+class VerifyResetCodeRequest(BaseModel):
+    login: str
+    code: str
+
+
+class VerifyResetCodeResponse(BaseModel):
+    message: str
+
+
 class ResetPasswordRequest(BaseModel):
     login: str
+    verification_code: str
     new_password: str = Field(min_length=6, max_length=60)
 
 

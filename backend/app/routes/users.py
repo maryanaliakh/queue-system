@@ -12,8 +12,12 @@ from app.schemas.users import (
     RegisterResponse,
     LoginRequest,
     LoginResponse,
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
     VerifyRequest,
     VerifyResponse,
+    VerifyResetCodeRequest,
+    VerifyResetCodeResponse,
     ResetPasswordRequest,
     ResetPasswordResponse
 )
@@ -158,6 +162,52 @@ async def verify(data: VerifyRequest, db: AsyncSession = Depends(get_db)):
         "user_id": str(user.id)
     }
 
+# Endpoint forgot-password
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(User).where(
+            or_(User.email == data.login, User.phone == data.login)
+        )
+    )
+
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    verification_code = generate_verification_code()
+
+    user.verification_code = verification_code
+
+    await db.commit()
+    await db.refresh(user)
+
+    return {
+        "message": "Verification code generated successfully",
+        "verification_code": verification_code
+    }
+
+# Endpoint verify-reset-code
+@router.post("/verify-reset-code", response_model=VerifyResetCodeResponse)
+async def verify_reset_code(data: VerifyResetCodeRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(User).where(
+            or_(User.email == data.login, User.phone == data.login)
+        )
+    )
+
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if user.verification_code != data.code:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    return {
+        "message": "Verification code is correct"
+    }
 
 # Endpoint reset-password
 @router.post("/reset-password", response_model=ResetPasswordResponse)
@@ -173,11 +223,15 @@ async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if user.verification_code != data.verification_code:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
     user.password_hash = hash_password(data.new_password)
+    user.verification_code = None
 
     await db.commit()
+    await db.refresh(user)
 
     return {
         "message": "Password reset successfully"
     }
-

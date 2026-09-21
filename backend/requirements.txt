@@ -6,3 +6,5 @@ python-dotenv
 passlib[bcrypt]
 pydantic
 email-validator
+websockets
+PyJWT

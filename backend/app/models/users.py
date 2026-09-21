@@ -1,16 +1,15 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Text
-from sqlalchemy.dialects.postgresql import UUID, ENUM
 import uuid
 from datetime import datetime
 
-from app.database.connection import Base
+from sqlalchemy import Column, String, Boolean, DateTime, Text
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID, ENUM
 
+from app.database.connection import Base
 
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-
+    id = Column(PG_UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String(60), unique=True)
     phone = Column(String(20), unique=True)
 

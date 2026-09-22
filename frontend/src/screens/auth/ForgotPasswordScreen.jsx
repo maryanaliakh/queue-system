@@ -10,10 +10,10 @@ import {
     Image,
 } from "react-native";
 
-import { forgotPasswordUser } from "../api/authApi";
-import { useLanguage } from "../context/LanguageContext";
-import { useMessage } from "../context/MessageContext";
-import { authStyles as styles } from "../styles/authStyles";
+import { forgotPasswordUser } from "../../api/authApi";
+import { useLanguage } from "../../context/LanguageContext";
+import { useMessage } from "../../context/MessageContext";
+import { authStyles as styles } from "../../styles/auth/authStyles";
 
 export default function ForgotPasswordScreen({ navigation }) {
     const [login, setLogin] = useState("");
@@ -62,7 +62,7 @@ export default function ForgotPasswordScreen({ navigation }) {
             >
                 <Text style={styles.languageText}>{t.languageName}</Text>
                 <Image
-                    source={require("../../assets/down-arrow.png")}
+                    source={require("../../../assets/down-arrow.png")}
                     style={styles.languageArrow}
                 />
             </TouchableOpacity>
@@ -78,7 +78,7 @@ export default function ForgotPasswordScreen({ navigation }) {
 
             <View style={styles.inputWrapper}>
                 <Image
-                    source={require("../../assets/email.png")}
+                    source={require("../../../assets/email.png")}
                     style={styles.inputIcon}
                 />
 

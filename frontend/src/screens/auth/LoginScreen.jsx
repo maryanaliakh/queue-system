@@ -11,10 +11,10 @@ import {
     Image,
 } from "react-native";
 
-import { useLanguage } from "../context/LanguageContext";
-import { useMessage } from "../context/MessageContext";
-import { loginUser } from "../api/authApi";
-import { authStyles as styles } from "../styles/authStyles";
+import { useLanguage } from "../../context/LanguageContext";
+import { useMessage } from "../../context/MessageContext";
+import { loginUser } from "../../api/authApi";
+import { authStyles as styles } from "../../styles/auth/authStyles";
 
 export default function LoginScreen({ navigation }) {
     const [login, setLogin] = useState("");
@@ -58,7 +58,7 @@ export default function LoginScreen({ navigation }) {
             >
                 <Text style={styles.languageText}>{t.languageName}</Text>
                 <Image
-                    source={require("../../assets/down-arrow.png")}
+                    source={require("../../../assets/down-arrow.png")}
                     style={styles.languageArrow}
                 />
             </TouchableOpacity>
@@ -72,7 +72,7 @@ export default function LoginScreen({ navigation }) {
 
             <View style={styles.inputWrapper}>
                 <Image
-                    source={require("../../assets/email.png")}
+                    source={require("../../../assets/email.png")}
                     style={styles.inputIcon}
                 />
 
@@ -88,7 +88,7 @@ export default function LoginScreen({ navigation }) {
 
             <View style={styles.inputWrapper}>
                 <Image
-                    source={require("../../assets/padlock.png")}
+                    source={require("../../../assets/padlock.png")}
                     style={styles.inputIcon}
                 />
 
@@ -105,8 +105,8 @@ export default function LoginScreen({ navigation }) {
                     <Image
                         source={
                             hidePassword
-                                ? require("../../assets/hiddedpass.png")
-                                : require("../../assets/seepass.png")
+                                ? require("../../../assets/hiddedpass.png")
+                                : require("../../../assets/seepass.png")
                         }
                         style={styles.eyeIcon}
                     />

@@ -6,8 +6,8 @@ import {
     ImageBackground,
 } from "react-native";
 
-import { useLanguage } from "../context/LanguageContext";
-import { authStyles as styles } from "../styles/authStyles";
+import { useLanguage } from "../../context/LanguageContext";
+import { authStyles as styles } from "../../styles/auth/authStyles";
 
 export default function RoleSelectionScreen({ navigation }) {
     const { t } = useLanguage();
@@ -20,7 +20,7 @@ export default function RoleSelectionScreen({ navigation }) {
 
     return (
         <ImageBackground
-            source={require("../../assets/choose-role-bg.jpg")}
+            source={require("../../../assets/choose-role-bg.jpg")}
             style={styles.roleBackground}
             resizeMode="cover"
         >

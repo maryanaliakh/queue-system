@@ -10,10 +10,10 @@ import {
     Image,
 } from "react-native";
 
-import { resetPasswordUser } from "../api/authApi";
-import { useLanguage } from "../context/LanguageContext";
-import { useMessage } from "../context/MessageContext";
-import { authStyles as styles } from "../styles/authStyles";
+import { resetPasswordUser } from "../../api/authApi";
+import { useLanguage } from "../../context/LanguageContext";
+import { useMessage } from "../../context/MessageContext";
+import { authStyles as styles } from "../../styles/auth/authStyles";
 
 export default function ResetPasswordScreen({ navigation, route }) {
     const login = route?.params?.login || "";
@@ -76,7 +76,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
             >
                 <Text style={styles.languageText}>{t.languageName}</Text>
                 <Image
-                    source={require("../../assets/down-arrow.png")}
+                    source={require("../../../assets/down-arrow.png")}
                     style={styles.languageArrow}
                 />
             </TouchableOpacity>
@@ -96,7 +96,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
                 onPress={() => passwordInputRef.current?.focus()}
             >
                 <Image
-                    source={require("../../assets/padlock.png")}
+                    source={require("../../../assets/padlock.png")}
                     style={styles.inputIcon}
                 />
 
@@ -115,8 +115,8 @@ export default function ResetPasswordScreen({ navigation, route }) {
                     <Image
                         source={
                             hidePassword
-                                ? require("../../assets/hiddedpass.png")
-                                : require("../../assets/seepass.png")
+                                ? require("../../../assets/hiddedpass.png")
+                                : require("../../../assets/seepass.png")
                         }
                         style={styles.eyeIcon}
                     />
@@ -129,7 +129,7 @@ export default function ResetPasswordScreen({ navigation, route }) {
                 onPress={() => confirmPasswordInputRef.current?.focus()}
             >
                 <Image
-                    source={require("../../assets/padlock.png")}
+                    source={require("../../../assets/padlock.png")}
                     style={styles.inputIcon}
                 />
 
@@ -150,8 +150,8 @@ export default function ResetPasswordScreen({ navigation, route }) {
                     <Image
                         source={
                             hideConfirmPassword
-                                ? require("../../assets/hiddedpass.png")
-                                : require("../../assets/seepass.png")
+                                ? require("../../../assets/hiddedpass.png")
+                                : require("../../../assets/seepass.png")
                         }
                         style={styles.eyeIcon}
                     />

@@ -12,10 +12,10 @@ import {
     TouchableWithoutFeedback,
 } from "react-native";
 
-import { verifyUser, verifyResetCodeUser } from "../api/authApi";
-import { useLanguage } from "../context/LanguageContext";
-import { useMessage } from "../context/MessageContext";
-import { authStyles as styles } from "../styles/authStyles";
+import { verifyUser, verifyResetCodeUser } from "../../api/authApi";
+import { useLanguage } from "../../context/LanguageContext";
+import { useMessage } from "../../context/MessageContext";
+import { authStyles as styles } from "../../styles/auth/authStyles";
 
 export default function CodeScreen({ navigation, route }) {
     const login = route?.params?.login || "";
@@ -93,7 +93,7 @@ export default function CodeScreen({ navigation, route }) {
                 >
                     <Text style={styles.languageText}>{t.languageName}</Text>
                     <Image
-                        source={require("../../assets/down-arrow.png")}
+                        source={require("../../../assets/down-arrow.png")}
                         style={styles.languageArrow}
                     />
                 </TouchableOpacity>

@@ -1,4 +1,4 @@
-export const translations = {
+export const authTranslations = {
     en: {
         languageName: "English",
 

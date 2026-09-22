@@ -1,8 +1,8 @@
 import React from "react";
 import {View, Text, TouchableOpacity, Image} from "react-native";
 
-import { useLanguage } from "../context/LanguageContext";
-import { authStyles as styles } from "../styles/authStyles";
+import { useLanguage } from "../../context/LanguageContext";
+import { authStyles as styles } from "../../styles/auth/authStyles";
 
 export default function LanguageScreen({ navigation }) {
     const { language, setLanguage } = useLanguage();
@@ -20,7 +20,7 @@ export default function LanguageScreen({ navigation }) {
                     onPress={() => navigation.goBack()}
                 >
                     <Image
-                        source={require("../../assets/back.png")}
+                        source={require("../../../assets/back.png")}
                         style={styles.languageBackIcon}
                     />
                 </TouchableOpacity>

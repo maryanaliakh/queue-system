@@ -1,7 +1,7 @@
 import React, { useEffect } from "react";
 import { Text, View } from "react-native";
 
-import { authStyles as styles } from "../styles/authStyles";
+import { authStyles as styles } from "../../styles/auth/authStyles";
 
 export default function SplashScreen({ navigation }) {
     useEffect(() => {

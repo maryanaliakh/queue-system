@@ -5,7 +5,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.catalog import Service
-from app.models.queue import QueueEntry
+from app.models.queue import QueueEntry, queue_order
 from app.models.users import User
 from app.routes.users import get_db
 from app.schemas.queue import (
@@ -19,6 +19,10 @@ from datetime import datetime
 from app.models.catalog import Institution
 from app.models.employees import Employee, EmployeeService
 from app.schemas.queue import ConfirmQueueRequest, SkipQueueRequest
+from app.security import get_current_user
+from app.access import require_self, require_employee, require_institution
+from app.notifications import queue_changed
+from app.queue_timing import recalculate
 
 router = APIRouter(prefix="/api/queue", tags=["Queue"])
 
@@ -32,7 +36,7 @@ async def get_active_entries(db: AsyncSession, service_id: UUID):
             QueueEntry.service_id == service_id,
             QueueEntry.status.in_(ACTIVE_STATUSES),
         )
-        .order_by(QueueEntry.created_at, QueueEntry.id)
+        .order_by(*queue_order())
     )
     return list(result.scalars().all())
 
@@ -58,8 +62,11 @@ async def lock_service(db: AsyncSession, service_id: UUID):
 )
 async def join_queue(
     data: JoinQueueRequest,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Identyfikator w żądaniu musi należeć do zalogowanego klienta.
+    require_self(current_user, data.user_id)
     async with db.begin():
         user = await db.get(User, data.user_id)
 
@@ -107,6 +114,8 @@ async def join_queue(
             item.queue_position = position
 
         await db.flush()
+        # Powiadomienie zapisuje się w tej transakcji; WebSocket budzi się po commit.
+        await queue_changed(db, entry)
         response = QueueResponse.model_validate(entry)
 
     return response
@@ -118,38 +127,19 @@ async def join_queue(
 )
 async def get_queue_status(
     user_id: UUID,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    require_self(current_user, user_id)
     user = await db.get(User, user_id)
 
     if user is None:
         raise HTTPException(404, "User not found")
 
-    # Обчислюємо поточну позицію серед активних записів,
-    # перш ніж відфільтрувати записи конкретного користувача.
-    from sqlalchemy import func
-
-    ranked = (
-        select(
-            QueueEntry.id,
-            QueueEntry.institution_id,
-            QueueEntry.service_id,
-            QueueEntry.client_id,
-            QueueEntry.status,
-            func.row_number().over(
-                partition_by=QueueEntry.service_id,
-                order_by=(QueueEntry.created_at, QueueEntry.id),
-            ).label("queue_position"),
-        )
-        .where(QueueEntry.status.in_(ACTIVE_STATUSES))
-        .subquery()
-    )
-
-    result = await db.execute(
-        select(ranked)
-        .where(ranked.c.client_id == user_id)
-        .order_by(ranked.c.service_id)
-    )
+    # Wspólne zapytanie zastępuje lokalny ranking: liczy całą kolejkę usługi
+    # przed wyborem klienta, dzięki czemu HTTP i WebSocket zwracają tę samą pozycję.
+    from app.queue_queries import ranked_queue
+    result = await db.execute(ranked_queue(user_id, for_user=True))
     return result.mappings().all()
 
 
@@ -159,8 +149,10 @@ async def get_queue_status(
 )
 async def cancel_queue(
     data: CancelQueueRequest,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    require_self(current_user, data.user_id)
     async with db.begin():
         # Спочатку дізнаємося послугу, не завантажуючи
         # об'єкт запису до отримання блокування.
@@ -204,6 +196,7 @@ async def cancel_queue(
 
             for position, item in enumerate(entries, start=1):
                 item.queue_position = position
+            await queue_changed(db, entry)
 
     return {
         "message": "Queue entry cancelled",
@@ -241,10 +234,12 @@ async def get_locked_entry(db, queue_entry_id):
 @router.post("/confirm", response_model=QueueResponse)
 async def confirm_queue(
     data: ConfirmQueueRequest,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    require_self(current_user, data.user_id)
     async with db.begin():
-        await lock_entry_service(db, data.queue_entry_id)
+        service = await lock_entry_service(db, data.queue_entry_id)
         entry = await get_locked_entry(db, data.queue_entry_id)
 
         if entry.client_id != data.user_id:
@@ -269,8 +264,12 @@ async def confirm_queue(
                 409, "Confirmation deadline has expired"
             )
 
+        await recalculate(db, service, now)
         entry.status = "confirmed"
         entry.confirmed_at = now
+        # Potwierdzenie utrwala czas przybycia, aby późniejsze ETA go nie przyspieszało.
+        entry.arrival_time = max(now, entry.estimated_start_at or now)
+        await queue_changed(db, entry)
 
         await db.flush()
         response = QueueResponse.model_validate(entry)
@@ -281,9 +280,11 @@ async def confirm_queue(
 @router.post("/skip", response_model=QueueResponse)
 async def skip_queue(
     data: SkipQueueRequest,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     async with db.begin():
+        await require_employee(db, current_user, data.employee_id)
         # Той самий порядок блокувань, що й у visit/start:
         # послуга → працівник → запис черги.
         service = await lock_entry_service(
@@ -343,6 +344,7 @@ async def skip_queue(
 
         entry.status = "skipped"
         entry.queue_position = None
+        await queue_changed(db, entry)
 
         await db.flush()
 
@@ -363,8 +365,10 @@ async def skip_queue(
 )
 async def get_institution_queue(
     institution_id: UUID,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await require_institution(db, current_user, institution_id)
     institution = await db.get(Institution, institution_id)
 
     if institution is None:
@@ -378,9 +382,13 @@ async def get_institution_queue(
             QueueEntry.service_id,
             QueueEntry.client_id,
             QueueEntry.status,
+            QueueEntry.estimated_wait_time, QueueEntry.delay_time,
+            QueueEntry.estimated_start_at, QueueEntry.eta_updated_at,
+            QueueEntry.confirmation_sent_at, QueueEntry.confirmation_expires_at,
+            QueueEntry.confirmed_at, QueueEntry.arrival_time,
             func.row_number().over(
                 partition_by=QueueEntry.service_id,
-                order_by=(QueueEntry.created_at, QueueEntry.id),
+                order_by=queue_order(),
             ).label("queue_position"),
         )
         .where(

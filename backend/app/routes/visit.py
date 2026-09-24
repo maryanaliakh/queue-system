@@ -9,6 +9,10 @@ from app.models.queue import QueueEntry
 from app.models.visit import Visit
 from app.routes.users import get_db
 from app.routes.queue import lock_service, get_active_entries
+from app.security import get_current_user
+from app.access import require_employee
+from app.notifications import queue_changed
+from app.models.employees import Employee, EmployeeService
 from app.schemas.visit import (
     StartVisitRequest,
     FinishVisitRequest,
@@ -20,15 +24,10 @@ router = APIRouter(prefix="/api/visit", tags=["Visit"])
 
 
 async def lock_employee(db, employee_id):
-    result = await db.execute(
-        text("""
-            SELECT id, institution_id, user_id, employee_status
-            FROM institution_employees
-            WHERE id = :employee_id
-            FOR UPDATE
-        """),
-        {"employee_id": employee_id},
-    )
+    # Zapytanie ORM zachowuje blokadę FOR UPDATE i typowanie identyfikatora.
+    result = await db.execute(select(
+        Employee.id, Employee.institution_id, Employee.user_id, Employee.employee_status,
+    ).where(Employee.id == employee_id).with_for_update())
     employee = result.mappings().first()
 
     if employee is None:
@@ -44,9 +43,12 @@ async def lock_employee(db, employee_id):
 )
 async def start_visit(
     data: StartVisitRequest,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     async with db.begin():
+        # Nie pozwala rozpocząć obsługi przez podanie identyfikatora innego pracownika.
+        await require_employee(db, current_user, data.employee_id)
         service_id = await db.scalar(
             select(QueueEntry.service_id).where(
                 QueueEntry.id == data.queue_entry_id
@@ -72,20 +74,10 @@ async def start_visit(
                 409, "Employee belongs to another institution"
             )
 
-        allowed = await db.scalar(
-            text("""
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM employee_services
-                    WHERE employee_id = :employee_id
-                      AND service_id = :service_id
-                )
-            """),
-            {
-                "employee_id": data.employee_id,
-                "service_id": service_id,
-            },
-        )
+        allowed = await db.scalar(select(EmployeeService.id).where(
+            EmployeeService.employee_id == data.employee_id,
+            EmployeeService.service_id == service_id,
+        ).limit(1))
 
         if not allowed:
             raise HTTPException(
@@ -106,6 +98,14 @@ async def start_visit(
             raise HTTPException(
                 409, "Queue entry is not ready for a visit"
             )
+
+        # Termin obowiązuje także przed następnym cyklem timera;
+        # potwierdzone przybycie wyznacza najwcześniejszy początek wizyty.
+        now = datetime.utcnow()
+        if entry.status == "waiting" and entry.confirmation_expires_at is not None and entry.confirmation_expires_at <= now:
+            raise HTTPException(409, "Confirmation deadline has expired")
+        if entry.arrival_time is not None and entry.arrival_time > now:
+            raise HTTPException(409, "Confirmed arrival time has not been reached")
 
         if entry.employee_id not in (None, data.employee_id):
             raise HTTPException(
@@ -144,6 +144,7 @@ async def start_visit(
             service_id=service.id,
             actual_start=datetime.utcnow(),
             standard_duration=service.standard_duration,
+            planned_start=entry.estimated_start_at,
             status="in_service",
         )
 
@@ -154,12 +155,14 @@ async def start_visit(
         await db.flush()
 
         response = VisitResponse.model_validate(visit)
+        await queue_changed(db, entry)
 
     return response
 
 
-async def finish_visit(db, data, target_status):
+async def finish_visit(db, data, target_status, current_user):
     async with db.begin():
+        await require_employee(db, current_user, data.employee_id)
         # Беремо тільки ідентифікатори, а актуальний
         # об'єкт візиту читаємо після блокувань.
         result = await db.execute(
@@ -226,6 +229,8 @@ async def finish_visit(db, data, target_status):
 
         visit.actual_end = now
         visit.actual_duration = max(0, ceil(elapsed / 60))
+        # Zapis odchylenia rzeczywistego czasu obsługi od czasu standardowego.
+        visit.delay_duration = visit.actual_duration - (visit.standard_duration or 0)
         visit.status = target_status
 
         entry.status = target_status
@@ -240,6 +245,7 @@ async def finish_visit(db, data, target_status):
 
         await db.flush()
         response = VisitResponse.model_validate(visit)
+        await queue_changed(db, entry)
 
     return response
 
@@ -247,14 +253,16 @@ async def finish_visit(db, data, target_status):
 @router.post("/end", response_model=VisitResponse)
 async def end_visit(
     data: FinishVisitRequest,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await finish_visit(db, data, "done")
+    return await finish_visit(db, data, "done", current_user)
 
 
 @router.post("/cancel", response_model=VisitResponse)
 async def cancel_visit(
     data: FinishVisitRequest,
+    current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await finish_visit(db, data, "cancelled")
+    return await finish_visit(db, data, "cancelled", current_user)

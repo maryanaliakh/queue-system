@@ -149,7 +149,7 @@ def test_full_visit_updates_both_devices_and_reconnect(env):
     with env.client.websocket_connect(path, headers=env.headers("bob")) as ws:
         assert ws.receive_json()["data"]["queue"][0]["queue_position"] == 1
     notices = env.client.get("/api/notifications", headers=env.headers("alice")).json()
-    assert len(notices) == 3  # join, start, end; ponowne end niczego nie dodaje
+    assert len(notices) == 3  # Zapis, rozpoczęcie i zakończenie wizyty; ponowne zakończenie niczego nie dodaje
 
 
 def test_logout_revokes_existing_socket(env):
@@ -196,7 +196,7 @@ def test_staff_queue_and_reports(env):
     paths = [f"/api/reports/daily?institution_id={env.ids['institution']}",
              f"/api/statistics/employee/{env.ids['employee']}"]
     for path in paths:
-        response = env.client.get(path, headers=env.headers("staff"))
+        response = env.client.get(path, headers=env.headers("admin" if "/reports/" in path else "staff"))
         assert response.status_code == 200, response.text
         assert response.json()["total_visits"] == 0
         assert env.client.get(path, headers=env.headers("outsider")).status_code == 403

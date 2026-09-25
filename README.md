@@ -2,7 +2,7 @@
 
 Powiadomienia i aktualizacje w czasie rzeczywistym opisano w
 [docs/notifications-realtime.md](docs/notifications-realtime.md).
-Przed uruchomieniem z istniejącą bazą należy zastosować migracje 001–005.
+Przed uruchomieniem z istniejącą bazą należy zastosować migracje 001–010.
 Obliczanie ETA, terminy potwierdzeń i ograniczenia opisano w
 [docs/eta-confirmations.md](docs/eta-confirmations.md).
 
@@ -27,3 +27,8 @@ oraz dokumentację modułu.
 Oferty urgent i last-minute: [docs/queue-offers.md](docs/queue-offers.md).
 Weryfikacja i wydajność backendu: [docs/backend-performance.md](docs/backend-performance.md).
 Integracja ekranów mobilnych i obsługa iOS pozostają osobnymi zadaniami.
+Nieobecność i zamknięcie dnia: [docs/day-closure.md](docs/day-closure.md).
+
+Rezerwacje i godziny pracy: [docs/calendar-working-hours.md](docs/calendar-working-hours.md).
+
+Konta, administracja i raporty: [docs/auth-reports-administration.md](docs/auth-reports-administration.md).

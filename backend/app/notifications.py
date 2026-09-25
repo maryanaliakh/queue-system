@@ -44,6 +44,7 @@ MESSAGES = {
     "done": ("Wizyta zakończona", "Visit completed"),
     "cancelled": ("Wizyta anulowana", "Visit cancelled"),
     "skipped": ("Wizyta pominięta", "Visit skipped"),
+    "missed": ("Nieobecność na wizycie", "Appointment missed"),
 }
 
 
@@ -61,6 +62,9 @@ async def queue_changed(db, entry, update_eta=True):
         user = await db.get(User, entry.client_id)
         titles = MESSAGES[entry.status]
         title = titles[0 if user.language == "pl" else 1]
+        if entry.status == "cancelled" and entry.cancellation_reason == "institution_closed":
+            title = ("Wizyta anulowana z powodu zamknięcia instytucji" if user.language == "pl"
+                     else "Visit cancelled because the institution has closed")
         await create_notification(db, entry.client_id, title, title, event_key)
     # Powiadom także pozostałych klientów: ich pozycja mogła się zmienić.
     clients = (await db.scalars(select(QueueEntry.client_id).where(

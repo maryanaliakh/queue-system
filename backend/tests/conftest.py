@@ -63,7 +63,7 @@ def env(tmp_path, monkeypatch, request):
         engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'test.db'}", poolclass=NullPool)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     ids = {key: uuid4() for key in (
-        "alice", "bob", "staff", "outsider", "institution", "other_institution",
+        "alice", "bob", "staff", "outsider", "admin", "admin_employee", "institution", "other_institution",
         "service", "employee", "other_employee",
     )}
     tokens = {}
@@ -84,8 +84,8 @@ def env(tmp_path, monkeypatch, request):
                 await conn.run_sync(create_enums)
             await conn.run_sync(Base.metadata.create_all)
         async with sessions.begin() as db:
-            for key in ("alice", "bob", "staff", "outsider"):
-                user = User(id=ids[key], role="employee" if key in ("staff", "outsider") else "client",
+            for key in ("alice", "bob", "staff", "outsider", "admin"):
+                user = User(id=ids[key], role="admin" if key == "admin" else "employee" if key in ("staff", "outsider") else "client",
                     email=f"{key}@example.com", password_hash="unused", language="en",
                     is_verified=True, is_active=True)
                 db.add(user)
@@ -105,6 +105,7 @@ def env(tmp_path, monkeypatch, request):
             db.add_all([
                 Service(id=ids["service"], institution_id=ids["institution"], name="Service", standard_duration=15),
                 Employee(id=ids["employee"], user_id=ids["staff"], institution_id=ids["institution"], employee_status="active"),
+                Employee(id=ids["admin_employee"], user_id=ids["admin"], institution_id=ids["institution"], employee_status="active"),
                 Employee(id=ids["other_employee"], user_id=ids["outsider"], institution_id=ids["other_institution"], employee_status="active"),
             ])
             await db.flush()

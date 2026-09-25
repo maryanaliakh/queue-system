@@ -16,14 +16,16 @@ def ranked_queue(target_id, *, for_user=False):
     ranked = select(
         QueueEntry.id, QueueEntry.institution_id, QueueEntry.service_id,
         QueueEntry.client_id, QueueEntry.status,
+        QueueEntry.queue_date, QueueEntry.scheduled_at, QueueEntry.slot_id, QueueEntry.employee_id,
         QueueEntry.estimated_wait_time, QueueEntry.delay_time,
         QueueEntry.estimated_start_at, QueueEntry.eta_updated_at,
         QueueEntry.confirmation_sent_at, QueueEntry.confirmation_expires_at,
         QueueEntry.confirmed_at, QueueEntry.arrival_time,
-        func.row_number().over(partition_by=QueueEntry.service_id,
+        QueueEntry.cancellation_reason, QueueEntry.missed_at, QueueEntry.missed_by,
+        func.row_number().over(partition_by=(QueueEntry.service_id, QueueEntry.queue_date),
                                order_by=queue_order()).label("queue_position"),
     ).where(QueueEntry.status.in_(ACTIVE), scope).subquery()
     result = select(ranked)
     if for_user:
         result = result.where(ranked.c.client_id == target_id)
-    return result.order_by(ranked.c.service_id, ranked.c.queue_position)
+    return result.order_by(ranked.c.service_id, ranked.c.queue_date, ranked.c.queue_position)

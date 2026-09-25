@@ -16,7 +16,9 @@ VALUES
 ('10000000-0000-4000-8000-000000000002', 'client2@example.com',
  'c3361fd933abbb36c63c1f241e7d78d7af0b5196f2ba788d70b0308c0b2005df', 'client', 'Demo', 'Client Two', 'en', true, true),
 ('10000000-0000-4000-8000-000000000003', 'staff@example.com',
- 'c3361fd933abbb36c63c1f241e7d78d7af0b5196f2ba788d70b0308c0b2005df', 'employee', 'Demo', 'Staff', 'en', true, true)
+ 'c3361fd933abbb36c63c1f241e7d78d7af0b5196f2ba788d70b0308c0b2005df', 'employee', 'Demo', 'Staff', 'en', true, true),
+('10000000-0000-4000-8000-000000000004', 'admin@example.com',
+ 'c3361fd933abbb36c63c1f241e7d78d7af0b5196f2ba788d70b0308c0b2005df', 'admin', 'Demo', 'Admin', 'en', true, true)
 ON CONFLICT DO NOTHING;
 
 INSERT INTO institutions (id, name)
@@ -31,7 +33,10 @@ ON CONFLICT DO NOTHING;
 INSERT INTO institution_employees (id, institution_id, user_id, employee_status)
 VALUES ('40000000-0000-4000-8000-000000000001',
  '20000000-0000-4000-8000-000000000001',
- '10000000-0000-4000-8000-000000000003', 'active')
+ '10000000-0000-4000-8000-000000000003', 'active'),
+('40000000-0000-4000-8000-000000000002',
+ '20000000-0000-4000-8000-000000000001',
+ '10000000-0000-4000-8000-000000000004', 'active')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO employee_services (id, employee_id, service_id)

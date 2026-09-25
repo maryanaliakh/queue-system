@@ -8,7 +8,7 @@ prośby o potwierdzenie. Oferty urgent i last-minute opisano w
 
 Przed uruchomieniem zaktualizowanego API należy kolejno zastosować migracje
 `001_notifications.sql`, `002_push.sql`, `003_eta_timers.sql`,
-`004_queue_offers.sql`, `005_queue_read_index.sql`.
+`004_queue_offers.sql`, `005_queue_read_index.sql`, `006_day_closure.sql`, `007_calendar_booking.sql`, `008_working_hours.sql`, `009_reports_warsaw.sql` i `010_email_verification.sql`.
 Trzecia migracja dodaje pola i indeksy bez usuwania wpisów. Jeśli instytucja ma
 kilka wierszy system_settings, migracja zatrzyma się: najpierw trzeba wyjaśnić
 niejednoznaczną konfigurację. Sprawdzono ją na odrębnym testowym PostgreSQL.
@@ -64,9 +64,10 @@ ponownej prośby ani nie przesuwa terminu.
   cykl nie zdążył jeszcze zapisać skipped. Ponowne potwierdzenie wpisu confirmed
   jest idempotentne.
 - Dla zachowania zgodności klient nadal może potwierdzić przybycie przed
-  automatyczną prośbą.
+  automatyczną prośbą, lecz dopiero w dniu wizyty.
 
-Nieobecność missed nie jest wykrywana automatycznie. Oferty urgent/last-minute
+Nieobecność `missed` oznacza pracownik przez `/api/queue/missed`; nie jest wykrywana automatycznie.
+Ręczne zamknięcie dnia opisano w [day-closure.md](day-closure.md). Oferty urgent/last-minute
 włącza się osobno; zob. [queue-offers.md](queue-offers.md).
 
 ## HTTP i WebSocket
@@ -98,3 +99,5 @@ zachowanie czasu przybycia, dwa jednoczesne cykle oraz potwierdzenie przy upływ
 Na PostgreSQL sprawdzono też scenariusz: pierwotny db.sql → migracje 001–003 →
 logowanie → join → ETA → automatyczna prośba → confirm → logout.
 Ponowne zastosowanie migracji 003 kończy się poprawnie.
+
+Podział na daty i ograniczenia grafiku: [calendar-working-hours.md](calendar-working-hours.md).

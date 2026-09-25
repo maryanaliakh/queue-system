@@ -4,13 +4,16 @@
 from datetime import date, datetime, time, timedelta
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import text, bindparam, Uuid, DateTime
+from sqlalchemy import text, bindparam, Uuid, DateTime, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.catalog import Institution
 from app.models.employees import Employee
 from app.routes.users import get_db
 from app.security import get_current_user
-from app.access import require_institution, require_employee
+from app.access import require_admin, require_employee
+from app.business_time import business_date, day_bounds, ZONE_NAME
+from app.models.reports import DailyReport
+from app.reports import report_view
 
 router = APIRouter()
 
@@ -56,8 +59,8 @@ async def visit_statistics(
     target_id,
     for_employee=False,
 ):
-    day_start = datetime.combine(selected_date, time.min)
-    day_end = day_start + timedelta(days=1)
+    # Granice lokalnego dnia uwzględniają zmianę czasu; zapytanie nadal porównuje znaczniki UTC.
+    day_start, day_end = day_bounds(selected_date)
 
     if for_employee:
         # Filtr uzupełnia pełne zapytanie zamiast zastępować je samym warunkiem AND.
@@ -102,8 +105,11 @@ async def daily_report(
         raise HTTPException(404, "Institution not found")
 
     # Sam identyfikator instytucji nie uprawnia do odczytu jej raportu.
-    await require_institution(db, user, institution_id)
-    selected_date = report_date or datetime.utcnow().date()
+    await require_admin(db, user, institution_id)
+    selected_date = report_date or business_date()
+    # Utrwalony raport uzupełnia bieżące statystyki i pozostaje dostępny po zamknięciu dnia.
+    saved = await db.scalar(select(DailyReport).where(DailyReport.institution_id == institution_id,
+                                                     DailyReport.report_date == selected_date))
 
     stats = await visit_statistics(
         db,
@@ -114,7 +120,8 @@ async def daily_report(
     return {
         "institution_id": institution_id,
         "report_date": selected_date,
-        "timezone": "UTC",
+        "timezone": ZONE_NAME,
+        "archive": report_view(saved),
         **stats,
     }
 
@@ -132,8 +139,13 @@ async def employee_statistics(
     if await db.get(Employee, employee_id) is None:
         raise HTTPException(404, "Employee not found")
 
+    # Pracownik odczytuje wyłącznie własne statystyki.
     await require_employee(db, user, employee_id)
-    selected_date = report_date or datetime.utcnow().date()
+    selected_date = report_date or business_date()
+    employee = await db.get(Employee, employee_id)
+    # Utrwalony raport uzupełnia bieżące statystyki i pozostaje dostępny po zamknięciu dnia.
+    saved = await db.scalar(select(DailyReport).where(DailyReport.institution_id == employee.institution_id,
+                                                     DailyReport.report_date == selected_date))
 
     stats = await visit_statistics(
         db,
@@ -145,6 +157,7 @@ async def employee_statistics(
     return {
         "employee_id": employee_id,
         "report_date": selected_date,
-        "timezone": "UTC",
+        "timezone": ZONE_NAME,
+        "archive": report_view(saved, employee_id),
         **stats,
     }

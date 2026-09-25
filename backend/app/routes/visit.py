@@ -102,10 +102,26 @@ async def start_visit(
         # Termin obowiązuje także przed następnym cyklem timera;
         # potwierdzone przybycie wyznacza najwcześniejszy początek wizyty.
         now = datetime.utcnow()
+        # Początek obsługi respektuje zamknięcie dnia oraz grafik instytucji i pracownika.
+        from app.day_closure import require_open
+        await require_open(db, service, now)
+        from app.calendar import require_interval
+        from datetime import timedelta
+        await require_interval(db, service, now, now + timedelta(microseconds=1), data.employee_id)
         if entry.status == "waiting" and entry.confirmation_expires_at is not None and entry.confirmation_expires_at <= now:
             raise HTTPException(409, "Confirmation deadline has expired")
         if entry.arrival_time is not None and entry.arrival_time > now:
             raise HTTPException(409, "Confirmed arrival time has not been reached")
+        # Rezerwacja kalendarzowa nie może rozpocząć się przed swoim terminem.
+        if entry.slot_id and entry.priority_at is None:
+            from app.models.slots import ServiceSlot
+            slot = await db.get(ServiceSlot, entry.slot_id)
+            if slot is None or slot.service_id != service.id:
+                raise HTTPException(409, "Invalid scheduled slot")
+            if slot.slot_start > now:
+                raise HTTPException(409, "Scheduled visit time has not been reached")
+            if slot.employee_id not in (None, data.employee_id):
+                raise HTTPException(409, "Scheduled slot belongs to another employee")
 
         if entry.employee_id not in (None, data.employee_id):
             raise HTTPException(
@@ -246,6 +262,16 @@ async def finish_visit(db, data, target_status, current_user):
         await db.flush()
         response = VisitResponse.model_validate(visit)
         await queue_changed(db, entry)
+        # Zamknięty dzień może nadal zawierać trwającą wizytę; odśwież zapisany raport po jej końcu.
+        from app.reports import refresh_daily_report
+        from app.models.day_closure import DayClosure
+        from app.business_time import business_date
+        days = (await db.scalars(select(DayClosure.day).where(
+            DayClosure.institution_id == entry.institution_id,
+            DayClosure.day >= min(entry.queue_date, business_date(visit.actual_start)),
+            DayClosure.day <= business_date(now)))).all()
+        for day in days:
+            await refresh_daily_report(db, entry.institution_id, day, now)
 
     return response
 

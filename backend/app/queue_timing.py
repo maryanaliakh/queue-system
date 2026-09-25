@@ -1,5 +1,6 @@
+from app.business_time import business_date, day_bounds, local_boundary
 """Szacunki UTC i trwałe terminy; każdy zapis wymaga blokady wiersza usługi."""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from math import ceil
 
 from sqlalchemy import select
@@ -19,7 +20,7 @@ async def recalculate(db, service, now=None):
     await db.flush()
     entries = list((await db.scalars(select(QueueEntry).where(
         QueueEntry.service_id == service.id, QueueEntry.status.in_(ACTIVE),
-    ).order_by(*queue_order()))).all())
+    ).order_by(QueueEntry.queue_date, *queue_order()))).all())
     employee_ids = list((await db.scalars(select(Employee.id).join(
         EmployeeService, EmployeeService.employee_id == Employee.id,
     ).where(EmployeeService.service_id == service.id,
@@ -37,7 +38,16 @@ async def recalculate(db, service, now=None):
         available[visit.employee_id] = max(available[visit.employee_id], finish,
             now + timedelta(minutes=1))
     duration = max(1, service.standard_duration or 15)
-    for position, entry in enumerate(entries, 1):
+    from app.calendar import load_calendar
+    calendar = await load_calendar(db, service.institution_id)
+    current_day, position = None, 0
+    today_available = available.copy()
+    for entry in entries:
+        if entry.queue_date != current_day:
+            current_day, position = entry.queue_date, 0
+            available = today_available.copy() if current_day <= business_date(now) else {
+                employee_id: day_bounds(current_day)[0] for employee_id in employee_ids}
+        position += 1
         old = (entry.queue_position, entry.estimated_wait_time, entry.delay_time, entry.estimated_start_at)
         entry.queue_position = position
         if entry.status == "in_service":
@@ -50,9 +60,15 @@ async def recalculate(db, service, now=None):
         else:
             eligible = [entry.employee_id] if entry.employee_id in available else (
                 list(available) if entry.employee_id is None else [])
-            if eligible and service.is_active:
-                chosen = min(eligible, key=lambda key: (available[key], str(key)))
-                start = max(available[chosen], entry.arrival_time or now, now)
+            # Przyjęta oferta pilna może przyspieszyć pierwotny termin tego samego dnia.
+            planned = entry.scheduled_at if entry.priority_at is None else None
+            candidates = {key: calendar.earliest(entry.queue_date,
+                max(available[key], entry.arrival_time or now, planned or now, now),
+                timedelta(minutes=duration), key) for key in eligible}
+            candidates = {key: value for key, value in candidates.items() if value is not None}
+            if candidates and service.is_active:
+                chosen = min(candidates, key=lambda key: (candidates[key], str(key)))
+                start = candidates[chosen]
                 entry.estimated_start_at = start
                 if entry.initial_estimated_start_at is None:
                     entry.initial_estimated_start_at = start
@@ -74,6 +90,9 @@ async def process_service(db, service, now=None):
     """Najpierw wygaszaj, potem przeliczaj i proś o potwierdzenie tylko raz dla wpisu."""
     from app.notifications import create_notification, queue_changed
     now = now or datetime.utcnow()
+    from app.day_closure import is_closed
+    if await is_closed(db, service.institution_id, now):
+        return
     settings = await db.scalar(select(SystemSettings).where(
         SystemSettings.institution_id == service.institution_id))
     threshold = max(0, settings.confirmation_time_minutes if settings and
@@ -82,6 +101,7 @@ async def process_service(db, service, now=None):
                            settings.client_response_minutes is not None else 2)
     expired = list((await db.scalars(select(QueueEntry).where(
         QueueEntry.service_id == service.id, QueueEntry.status == "waiting",
+        QueueEntry.queue_date == business_date(now),
         QueueEntry.confirmation_expires_at <= now,
     ).order_by(QueueEntry.id).with_for_update())).all())
     for entry in expired:
@@ -96,7 +116,7 @@ async def process_service(db, service, now=None):
             await advance(db, service, now)
         return
     for entry in entries:
-        if (entry.status != "waiting" or entry.confirmation_sent_at is not None
+        if (entry.queue_date != business_date(now) or entry.status != "waiting" or entry.confirmation_sent_at is not None
                 or entry.estimated_wait_time is None or entry.estimated_wait_time > threshold):
             continue
         entry.confirmation_sent_at = now

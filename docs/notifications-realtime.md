@@ -16,7 +16,7 @@ Moduł zapisuje powiadomienia o zmianach kolejki i przesyła aktualny stan do uw
 
 1. Zainstalować zależności z `backend/requirements.txt` (do testów: `requirements-dev.txt`).
 2. Przygotować PostgreSQL według `app/database/db.sql`. Nie importować dumpa do istniejącej bazy z danymi.
-3. Na istniejącej bazie wykonać kolejno `backend/migrations/001_notifications.sql` i `002_push.sql` oraz `003_eta_timers.sql` i `004_queue_offers.sql`, a następnie `005_queue_read_index.sql` przed uruchomieniem zmienionej aplikacji. Skrypty dodają kolumny, indeksy i kolejkę push; nie usuwają danych. W tym zadaniu nie były uruchamiane na bazie zespołu. Druga migracja zatrzyma się, jeśli istnieją duplikaty tokenów urządzeń; ich właścicieli trzeba najpierw ustalić, bez automatycznego usuwania rekordów.
+3. Na istniejącej bazie wykonać kolejno `backend/migrations/001_notifications.sql` i `002_push.sql` oraz `003_eta_timers.sql` i `004_queue_offers.sql`, a następnie `005_queue_read_index.sql` , `006_day_closure.sql`, `007_calendar_booking.sql` i `008_working_hours.sql`, `009_reports_warsaw.sql` i `010_email_verification.sql` przed uruchomieniem zmienionej aplikacji. Skrypty dodają kolumny, indeksy i kolejkę push; nie usuwają danych. W tym zadaniu nie były uruchamiane na bazie zespołu. Druga migracja zatrzyma się, jeśli istnieją duplikaty tokenów urządzeń; ich właścicieli trzeba najpierw ustalić, bez automatycznego usuwania rekordów.
 4. Utworzyć lokalny `backend/.env` na podstawie `.env.example`. Ustawić własne DATABASE_URL i JWT_SECRET.
 5. Z katalogu backend uruchomić `python -m uvicorn app.main:app --reload --workers 1`.
 6. Testy: z katalogu backend `python -m pytest -q`.

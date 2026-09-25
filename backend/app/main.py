@@ -24,6 +24,9 @@ from app.routes.notifications import router as notifications_router
 from app.routes.realtime import router as realtime_router
 from app.routes.push import router as push_router
 from app.routes.offers import router as offers_router
+from app.routes.day_closure import router as day_closure_router
+from app.routes.calendar import router as calendar_router
+from app.routes.administration import router as administration_router
 # Cykl życia API uruchamia opcjonalne timery i anuluje je przy zamknięciu procesu.
 @asynccontextmanager
 async def lifespan(app):
@@ -62,3 +65,7 @@ app.include_router(push_router)
 app.include_router(notifications_router)
 app.include_router(realtime_router)
 app.include_router(offers_router)
+# Nowe trasy udostępniają zamknięcie dnia, grafik i administrację bez duplikowania istniejących tras.
+app.include_router(day_closure_router)
+app.include_router(calendar_router)
+app.include_router(administration_router)

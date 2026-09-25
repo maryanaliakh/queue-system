@@ -1,6 +1,50 @@
-# Weryfikacja backendu — 24.09.2026
+# Weryfikacja backendu — 25.09.2026
 
-Pełny zestaw testów PostgreSQL: **52 passed**, bez pominiętych testów (145,14 s).
+## Aktualna weryfikacja
+
+Pełny zestaw PostgreSQL: **90 passed**, bez pominiętych testów
+(310,10 s; 3625 ostrzeżeń). Obejmuje strefę Europe/Warsaw i zmianę czasu,
+archiwizację i finalizację raportów, uprawnienia administracyjne, historię kolejki,
+audyt zmian oraz potwierdzanie adresu email i odzyskiwanie hasła.
+
+Osobno sprawdzono przepływ HTTP/WebSocket na oryginalnym schemacie SQL
+z migracjami 001–010: rejestrację, potwierdzenie email, logowanie, utworzenie usługi
+i pracownika, zapis do kolejki, obsługę wizyty, zamknięcie dnia, raport i wylogowanie.
+Migracje 009 i 010 zastosowano dwukrotnie w osobnej bazie testowej.
+Sprawdzono również przejście ze schematu z migracjami 001–005 do 006–010
+i ponowne zastosowanie nowych migracji. Zachowano identyfikatory, adresy email,
+hashe haseł i stan weryfikacji istniejących użytkowników testowych.
+Po oznaczeniu emaila jako wymaganego pola schematu API ponownie wykonano
+osiem testów autoryzacji i pełnego przepływu na PostgreSQL: wszystkie przeszły.
+W testach automatycznych wysyłkę SMTP zastępowała implementacja testowa.
+Osobno wykonano rejestrację i reset hasła z rzeczywistą wysyłką SMTP:
+potwierdzenie czterocyfrowego kodu, zmianę hasła, unieważnienie poprzedniej sesji
+i odrzucenie ponownego użycia kodu. Odbiór wcześniejszej wiadomości testowej
+potwierdzono ręcznie. Ostrzeżenia zależności pozostają do przeglądu.
+Poniższe pomiary obciążenia dotyczą wcześniejszej wersji.
+
+## Wcześniejsza weryfikacja kalendarza
+
+Zestaw PostgreSQL przed dodaniem strefy Europe/Warsaw i raportów: **75 passed**, bez pominiętych testów
+(139,59 s; 2708 ostrzeżeń). Obejmuje osobne kolejki dzienne, rezerwacje slotów,
+wyścigi zapisów, uprawnienia kalendarza, przerwy, święta, grafiki pracowników,
+zamykanie po godzinach i odtworzenie po restarcie. Sprawdzono pola dat w WebSocket.
+Migracje 007 i 008 zastosowano dwukrotnie w odrębnej bazie testowej; osobny test
+sprawdza uzupełnienie daty istniejącej rezerwacji podczas migracji 007.
+Pomiarów obciążenia poniżej nie powtarzano dla rozszerzonego algorytmu.
+
+## Nieobecność i zamknięcie dnia
+
+Po dodaniu migracji 006 pełny zestaw PostgreSQL zakończył się wynikiem
+**60 passed**, bez pominiętych testów (61,13 s; 2095 ostrzeżeń).
+Nowe scenariusze obejmują uprawnienia, ręczną nieobecność, powtórzenie żądania,
+zachowanie rozpoczętych wizyt i przyszłych rezerwacji, wygaszenie ofert,
+wycofanie transakcji oraz równoczesny zapis i zamknięcie dnia.
+Migrację 006 zastosowano dwukrotnie w osobnym lokalnym klastrze testowym.
+
+## Wcześniejsza weryfikacja optymalizacji
+
+Wersja przed dodaniem zamknięcia dnia — zestaw testów PostgreSQL: **52 passed**, bez pominiętych testów (145,14 s).
 Testy wykonywano w izolowanych schematach osobnego lokalnego klastra PostgreSQL.
 Cztery nowe testy regresji obejmują właściciela i wygaśnięcie sesji, nieaktywnych
 użytkowników, pozycje klientów w różnych usługach, ograniczoną liczbę zapytań
@@ -24,6 +68,9 @@ Wystąpiło 1695 ostrzeżeń; nie oznacza to usunięcia wszystkich ostrzeżeń z
   Nie zastosowano jej we wspólnej bazie zespołu.
 
 ## Ograniczony pomiar lokalny
+
+Poniższy pomiar dotyczy wersji sprzed migracji 006 i zmiany kolejności blokad.
+Nie stanowi pomiaru nowych operacji zamknięcia dnia.
 
 `python -m scripts.profile_load --rounds 2` uruchamia tymczasowe API na lokalnym
 porcie 8001, z wyłączonym mechanizmem czasowym i lokalną bazą demonstracyjną.
@@ -57,7 +104,7 @@ ani przepustowości FCM.
 
 ## Uruchomienie i dalszy rozwój
 
-Zastosować kolejno migracje 001–005, skonfigurować prywatny `.env` i skorzystać z:
+Zastosować kolejno migracje 001–010, skonfigurować prywatny `.env` i skorzystać z:
 [notifications-realtime.md](notifications-realtime.md),
 [eta-confirmations.md](eta-confirmations.md) oraz [queue-offers.md](queue-offers.md).
 Lokalny scenariusz demonstracyjny opisano w
@@ -67,4 +114,6 @@ Ręcznie zweryfikowano dostarczanie powiadomień push na Androidzie w tle
 i przy otwartej aplikacji. Testy automatyczne używają testowej implementacji Firebase.
 
 Dalszy rozwój obejmuje integrację ekranów mobilnych z API, konfigurację iOS/APNs
-oraz rozszerzenie algorytmu o terminy kalendarzowe, godziny pracy i zasady zamykania dnia.
+oraz obserwację dostarczalności poczty po wdrożeniu. Europe/Warsaw i archiwum raportów
+opisano w [auth-reports-administration.md](auth-reports-administration.md).
+Rezerwacje i grafik opisano w [calendar-working-hours.md](calendar-working-hours.md). Ręczne zamknięcie opisano w [day-closure.md](day-closure.md).

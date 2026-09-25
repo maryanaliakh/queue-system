@@ -38,6 +38,11 @@ Poniższe polecenia wykonuj pojedynczo, dopiero po powodzeniu poprzedniego:
 & $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\migrations\003_eta_timers.sql'
 & $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\migrations\004_queue_offers.sql'
 & $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\migrations\005_queue_read_index.sql'
+& $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\migrations\006_day_closure.sql'
+& $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\migrations\007_calendar_booking.sql'
+& $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\migrations\008_working_hours.sql'
+& $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\migrations\009_reports_warsaw.sql'
+& $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\migrations\010_email_verification.sql'
 & $pgTool -h 127.0.0.1 -U postgres -d queue_system_local -v ON_ERROR_STOP=1 -f '.\scripts\seed_manual_demo.sql'
 ```
 
@@ -237,3 +242,7 @@ projektu Firebase.
 
 W razie błędu zachowaj pierwszy komunikat i polecenie, które go wywołało,
 bez zawartości `.env` i tokenów.
+
+Konfigurację instytucji wykonuje konto `admin@example.com` (lokalne hasło demonstracyjne
+`Demo-Queue-2026`). Obsługę wizyt nadal wykonuje `staff@example.com`.
+Nowa rejestracja wymaga SMTP; gotowe konta demonstracyjne są już zweryfikowane.

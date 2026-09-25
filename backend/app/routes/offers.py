@@ -1,3 +1,4 @@
+from app.business_time import business_date, day_bounds, local_boundary
 from datetime import datetime, timedelta
 from typing import Literal
 from uuid import UUID
@@ -31,16 +32,18 @@ async def locked_window(db, window_id):
 
 
 async def claim(db, service, window, entry, user, minutes, now):
-    if window.status != "active" or window.expires_at <= now or not service.is_active:
+    from app.day_closure import require_open
+    await require_open(db, service, now)
+    if window.status != "active" or window.expires_at <= now or business_date(window.created_at) != business_date(now) or not service.is_active:
         raise HTTPException(409, "Offer is no longer available")
-    if entry and (entry.status != "waiting" or (entry.confirmation_expires_at and entry.confirmation_expires_at <= now)):
+    if entry and (entry.queue_date != business_date(now) or entry.status != "waiting" or (entry.confirmation_expires_at and entry.confirmation_expires_at <= now)):
         raise HTTPException(409, "Queue entry is no longer eligible")
     settings = await settings_for(db, service)
     if minutes and settings and getattr(settings, f"urgent_offer_{minutes}_enabled") is False:
         raise HTTPException(409, "This arrival option is disabled")
     arrival = now + timedelta(minutes=minutes)
     promised = await db.scalar(select(QueueEntry.id).where(
-        QueueEntry.service_id == service.id, QueueEntry.status == "confirmed",
+        QueueEntry.service_id == service.id, QueueEntry.queue_date == business_date(now), QueueEntry.status == "confirmed",
         QueueEntry.arrival_time < arrival + timedelta(minutes=max(1, service.standard_duration or 15)),
     ).limit(1))
     if promised:
@@ -49,11 +52,14 @@ async def claim(db, service, window, entry, user, minutes, now):
     employee = await idle_employee(db, service, now, lock=True)
     if employee is None:
         raise HTTPException(409, "No employee is available")
+    from app.calendar import require_interval
+    await require_interval(db, service, arrival,
+                           arrival + timedelta(minutes=max(1, service.standard_duration or 15)), employee.id)
     if entry is not None and entry.employee_id not in (None, employee.id):
         raise HTTPException(409, "Entry is assigned to another employee")
     if entry is None:
         count = len((await db.scalars(select(QueueEntry.id).where(
-            QueueEntry.service_id == service.id,
+            QueueEntry.service_id == service.id, QueueEntry.queue_date == business_date(now),
             QueueEntry.status.in_(("waiting", "confirmed", "in_service"))))).all())
         if service.max_queue_length is not None and count >= service.max_queue_length:
             raise HTTPException(409, "Queue is full")
@@ -126,6 +132,7 @@ async def accept_last_minute(window_id: UUID, user=Depends(get_current_user), db
             return QueueResponse.model_validate(await db.get(QueueEntry, window.accepted_entry_id))
         entry = await db.scalar(select(QueueEntry).where(
             QueueEntry.service_id == service.id, QueueEntry.client_id == user.id,
+            QueueEntry.queue_date == business_date(),
             QueueEntry.status.in_(("waiting", "confirmed", "in_service"))).with_for_update())
         entry = await claim(db, service, window, entry, user, 0, datetime.utcnow())
         return QueueResponse.model_validate(entry)

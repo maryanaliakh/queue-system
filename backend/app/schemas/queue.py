@@ -1,6 +1,6 @@
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, field_serializer
 
@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, field_serializer
 class JoinQueueRequest(BaseModel):
     user_id: UUID
     service_id: UUID
+    # Opcjonalny slot dodaje rezerwacje kalendarzowe bez usuwania zwykłego zapisu do kolejki.
+    slot_id: Optional[UUID] = None
 
 
 class CancelQueueRequest(BaseModel):
@@ -22,6 +24,11 @@ class QueueResponse(BaseModel):
     institution_id: Optional[UUID] = None
     service_id: UUID
     client_id: UUID
+    # Termin i przypisanie pozwalają klientowi odróżnić rezerwację od bieżącej kolejki.
+    slot_id: Optional[UUID] = None
+    employee_id: Optional[UUID] = None
+    queue_date: Optional[date] = None
+    scheduled_at: Optional[datetime] = None
     queue_position: Optional[int] = None
     status: str
     # Pola opcjonalne udostępniają ETA i terminy bez zmiany istniejących pól odpowiedzi.
@@ -33,10 +40,14 @@ class QueueResponse(BaseModel):
     confirmation_expires_at: Optional[datetime] = None
     confirmed_at: Optional[datetime] = None
     arrival_time: Optional[datetime] = None
+    # Odpowiedź pozwala odróżnić powód anulowania i ręczne oznaczenie nieobecności.
+    cancellation_reason: Optional[str] = None
+    missed_at: Optional[datetime] = None
+    missed_by: Optional[UUID] = None
 
     # Jawne UTC zapobiega interpretowaniu terminów jako czasu lokalnego urządzenia.
     @field_serializer("estimated_start_at", "eta_updated_at", "confirmation_sent_at",
-                      "confirmation_expires_at", "confirmed_at", "arrival_time")
+                      "confirmation_expires_at", "confirmed_at", "arrival_time", "missed_at", "scheduled_at")
     def utc_timestamp(self, value):
         return value.isoformat() + "Z" if value else None
 

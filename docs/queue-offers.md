@@ -1,7 +1,7 @@
 # Oferty urgent i last-minute
 
 Implementacja serwerowa dla bieżącej kolejki. Przed uruchomieniem należy zastosować
-migracje 001–005 po kolei. Migracje 003/004 zastosowano w lokalnej bazie demonstracyjnej
+migracje 001–010 po kolei. Migracje 003/004 zastosowano w lokalnej bazie demonstracyjnej
 23.09.2026, a 005 — 24.09.2026; nie zastosowano ich do wspólnej bazy zespołu.
 Mechanizm czasowy i oferty włącza się jawnie:
 
@@ -71,8 +71,8 @@ dane osobowe kolejki nie są rozsyłane publicznie.
 ## Ograniczenia i przechowywanie
 
 - Jedno aktywne okno na usługę to zachowawczy wariant, także przy kilku pracownikach.
-- Terminy kalendarzowe i godziny pracy pozostają osobnym zadaniem; oferty dotyczą
-  dostępności do natychmiastowego przyjęcia w bieżącej kolejce.
+- Oferty dotyczą bieżącej daty i dostępności w godzinach pracy; przyszłe
+  rezerwacje nie są kandydatami. Zob. [calendar-working-hours.md](calendar-working-hours.md).
 - Potwierdzony czas przybycia nie jest skracany. W razie konfliktu oferta nie jest
   wystawiana albo jej przyjęcie zostaje odrzucone.
 - Ekrany zespołu nadal używają mockData. Przyciski ofert trzeba połączyć z API;

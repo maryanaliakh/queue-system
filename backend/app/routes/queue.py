@@ -1,3 +1,4 @@
+from app.business_time import business_date, day_bounds, local_boundary
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -29,12 +30,14 @@ router = APIRouter(prefix="/api/queue", tags=["Queue"])
 ACTIVE_STATUSES = ("waiting", "confirmed", "in_service")
 
 
-async def get_active_entries(db: AsyncSession, service_id: UUID):
+async def get_active_entries(db: AsyncSession, service_id: UUID, queue_date=None):
+    # Limit i pozycje liczymy dla jednego lokalnego dnia, bez mieszania przyszłych rezerwacji.
     result = await db.execute(
         select(QueueEntry)
         .where(
             QueueEntry.service_id == service_id,
             QueueEntry.status.in_(ACTIVE_STATUSES),
+            QueueEntry.queue_date == (queue_date or business_date()),
         )
         .order_by(*queue_order())
     )
@@ -42,6 +45,10 @@ async def get_active_entries(db: AsyncSession, service_id: UUID):
 
 
 async def lock_service(db: AsyncSession, service_id: UUID):
+    # Zamknięcie dnia i operacje kolejki blokują najpierw instytucję, potem usługę.
+    institution_id = await db.scalar(select(Service.institution_id).where(Service.id == service_id))
+    if institution_id is not None:
+        await db.scalar(select(Institution).where(Institution.id == institution_id).with_for_update())
     result = await db.execute(
         select(Service)
         .where(Service.id == service_id)
@@ -78,6 +85,36 @@ async def join_queue(
 
         # Серіалізуємо зміни черги однієї послуги.
         service = await lock_service(db, data.service_id)
+        now = datetime.utcnow()
+        slot = None
+        # Opcjonalny slot jest rezerwowany pod blokadą po sprawdzeniu pracownika i dostępności.
+        if data.slot_id:
+            from app.models.slots import ServiceSlot
+            from app.routes.slots import validate_assignment
+            slot = await db.scalar(select(ServiceSlot).where(ServiceSlot.id == data.slot_id).with_for_update())
+            if slot is None or slot.service_id != service.id:
+                raise HTTPException(404, "Slot not found for this service")
+            if not slot.is_available or slot.slot_start <= now:
+                raise HTTPException(409, "Slot is not available")
+            employee = await db.get(Employee, slot.employee_id) if slot.employee_id else None
+            if employee is None:
+                raise HTTPException(409, "Slot has no employee")
+            await validate_assignment(db, service, employee)
+            occupied = await db.scalar(select(QueueEntry.id).where(
+                QueueEntry.slot_id == slot.id, QueueEntry.status.in_(ACTIVE_STATUSES)).limit(1))
+            if occupied:
+                raise HTTPException(409, "Slot is already booked")
+        # Zamknięcie i godziny pracy sprawdzamy dla dnia wizyty w Europe/Warsaw.
+        queue_date = business_date(slot.slot_start) if slot else business_date(now)
+        from app.models.day_closure import DayClosure
+        if await db.get(DayClosure, (service.institution_id, queue_date)):
+            raise HTTPException(409, "Institution is closed for this day")
+        from app.calendar import require_interval
+        if slot:
+            await require_interval(db, service, slot.slot_start, slot.slot_end, slot.employee_id)
+        else:
+            from app.day_closure import require_open
+            await require_open(db, service, now)
 
         if not service.is_active:
             raise HTTPException(400, "Service is inactive")
@@ -85,7 +122,7 @@ async def join_queue(
         if service.institution_id is None:
             raise HTTPException(400, "Service has no institution")
 
-        entries = await get_active_entries(db, service.id)
+        entries = await get_active_entries(db, service.id, queue_date)
 
         if any(entry.client_id == data.user_id for entry in entries):
             raise HTTPException(
@@ -103,12 +140,16 @@ async def join_queue(
             institution_id=service.institution_id,
             service_id=service.id,
             client_id=data.user_id,
+            slot_id=slot.id if slot else None,
+            employee_id=slot.employee_id if slot else None,
+            queue_date=queue_date,
+            scheduled_at=slot.slot_start if slot else None,
             status="waiting",
         )
         db.add(entry)
         await db.flush()
 
-        entries = await get_active_entries(db, service.id)
+        entries = await get_active_entries(db, service.id, queue_date)
 
         for position, item in enumerate(entries, start=1):
             item.queue_position = position
@@ -256,6 +297,10 @@ async def confirm_queue(
 
         now = datetime.utcnow()
 
+        # Potwierdzenie przybycia nie może uruchamiać obsługi przyszłego dnia.
+        if entry.queue_date != business_date(now):
+            raise HTTPException(409, "Arrival can only be confirmed on the visit day")
+
         if (
             entry.confirmation_expires_at is not None
             and entry.confirmation_expires_at <= now
@@ -264,6 +309,8 @@ async def confirm_queue(
                 409, "Confirmation deadline has expired"
             )
 
+        from app.day_closure import require_open
+        await require_open(db, service, now)
         await recalculate(db, service, now)
         entry.status = "confirmed"
         entry.confirmed_at = now
@@ -359,6 +406,46 @@ async def skip_queue(
     return response
 
 
+# Nieobecność oznacza ręcznie przypisany pracownik; odmowa klienta pozostaje anulowaniem.
+@router.post("/missed", response_model=QueueResponse)
+async def mark_missed(data: SkipQueueRequest, current_user=Depends(get_current_user),
+                      db: AsyncSession = Depends(get_db)):
+    async with db.begin():
+        await require_employee(db, current_user, data.employee_id)
+        service = await lock_entry_service(db, data.queue_entry_id)
+        employee = await db.scalar(select(Employee).where(
+            Employee.id == data.employee_id).with_for_update())
+        if employee.institution_id != service.institution_id or employee.employee_status != "active":
+            raise HTTPException(403, "Employee is not active in this institution")
+        assignment = await db.scalar(select(EmployeeService.id).where(
+            EmployeeService.employee_id == employee.id, EmployeeService.service_id == service.id))
+        if assignment is None:
+            raise HTTPException(403, "Employee is not assigned to this service")
+        entry = await get_locked_entry(db, data.queue_entry_id)
+        if entry.employee_id not in (None, employee.id):
+            raise HTTPException(403, "Entry belongs to another employee")
+        # Ponowienie nie zmienia audytu ani nie tworzy drugiego powiadomienia.
+        if entry.status == "missed":
+            return QueueResponse.model_validate(entry)
+        if entry.status not in ("waiting", "confirmed"):
+            raise HTTPException(409, "Only waiting or confirmed entries can be marked missed")
+        now = datetime.utcnow()
+        if entry.arrival_time and entry.arrival_time > now:
+            raise HTTPException(409, "Confirmed arrival time has not been reached")
+        if entry.slot_id and entry.priority_at is None:
+            from app.models.slots import ServiceSlot
+            slot = await db.get(ServiceSlot, entry.slot_id)
+            if slot and slot.slot_start > now:
+                raise HTTPException(409, "Scheduled visit time has not been reached")
+        entry.status = "missed"
+        entry.missed_at = now
+        entry.missed_by = current_user.id
+        entry.queue_position = None
+        await queue_changed(db, entry)
+        await db.flush()
+        return QueueResponse.model_validate(entry)
+
+
 @router.get(
     "/institution/{institution_id}",
     response_model=list[QueueResponse],
@@ -381,13 +468,15 @@ async def get_institution_queue(
             QueueEntry.institution_id,
             QueueEntry.service_id,
             QueueEntry.client_id,
+            QueueEntry.queue_date, QueueEntry.scheduled_at, QueueEntry.slot_id, QueueEntry.employee_id,
             QueueEntry.status,
             QueueEntry.estimated_wait_time, QueueEntry.delay_time,
             QueueEntry.estimated_start_at, QueueEntry.eta_updated_at,
             QueueEntry.confirmation_sent_at, QueueEntry.confirmation_expires_at,
             QueueEntry.confirmed_at, QueueEntry.arrival_time,
             func.row_number().over(
-                partition_by=QueueEntry.service_id,
+                # Ranking osobny dla każdej usługi i daty rezerwacji.
+                partition_by=(QueueEntry.service_id, QueueEntry.queue_date),
                 order_by=queue_order(),
             ).label("queue_position"),
         )

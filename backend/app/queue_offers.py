@@ -1,3 +1,4 @@
+from app.business_time import business_date, day_bounds, local_boundary
 """Oferty szereguje ta sama blokada usługi co zwykłe operacje kolejki."""
 from datetime import datetime, timedelta
 from sqlalchemy import select, exists
@@ -20,6 +21,8 @@ def response_minutes(settings):
 
 
 async def idle_employee(db, service, now, lock=False):
+    from app.calendar import load_calendar
+    calendar = await load_calendar(db, service.institution_id)
     query = select(Employee).where(Employee.institution_id == service.institution_id,
         Employee.employee_status == "active", exists(select(EmployeeService.id).where(
             EmployeeService.employee_id == Employee.id, EmployeeService.service_id == service.id)),
@@ -27,10 +30,13 @@ async def idle_employee(db, service, now, lock=False):
     if lock:
         query = query.with_for_update()
     for employee in (await db.scalars(query)).all():
+        if not calendar.fits(now, now + timedelta(minutes=max(1, service.standard_duration or 15)), employee.id):
+            continue
         busy = await db.scalar(select(Visit.id).where(Visit.employee_id == employee.id,
                                                      Visit.status == "in_service").limit(1))
         reserved = await db.scalar(select(QueueEntry.id).where(
             QueueEntry.employee_id == employee.id,
+            QueueEntry.queue_date == business_date(now),
             QueueEntry.status.in_(("confirmed", "in_service"))).limit(1))
         if not busy and not reserved:
             return employee
@@ -54,7 +60,7 @@ async def advance(db, service, now=None):
     settings = await settings_for(db, service)
     if not service.is_active or await idle_employee(db, service, now) is None:
         window.status = "expired"
-    if window.expires_at <= now:
+    if window.expires_at <= now or business_date(window.created_at) != business_date(now):
         window.status = "expired"
     pending = await db.scalar(select(QueueOffer).where(
         QueueOffer.window_id == window.id, QueueOffer.status == "pending"))
@@ -70,7 +76,7 @@ async def advance(db, service, now=None):
         return
     attempted = select(QueueOffer.queue_entry_id).where(QueueOffer.window_id == window.id)
     candidates = (await db.scalars(select(QueueEntry).join(User, User.id == QueueEntry.client_id).where(
-        QueueEntry.service_id == service.id, QueueEntry.status == "waiting",
+        QueueEntry.service_id == service.id, QueueEntry.queue_date == business_date(now), QueueEntry.status == "waiting",
         User.role == "client", User.is_active.is_(True),
         QueueEntry.id.not_in(attempted),
     ).order_by(*queue_order()))).all()
@@ -91,7 +97,7 @@ async def advance(db, service, now=None):
         window.expires_at = now + timedelta(minutes=response_minutes(settings))
         # Powiadamiaj tylko klientów tej usługi, nigdy wszystkich użytkowników systemu.
         recipients = (await db.scalars(select(QueueEntry.client_id).where(
-            QueueEntry.service_id == service.id, QueueEntry.status == "waiting").distinct())).all()
+            QueueEntry.service_id == service.id, QueueEntry.queue_date == business_date(now), QueueEntry.status == "waiting").distinct())).all()
         for user_id in recipients:
             user = await db.get(User, user_id)
             title = "Okno last minute" if user.language == "pl" else "Last-minute appointment available"
@@ -102,9 +108,12 @@ async def advance(db, service, now=None):
 async def open_for_transition(db, entry, now=None):
     from app.models.catalog import Service
     now = now or datetime.utcnow()
-    if entry.status not in ("done", "cancelled", "skipped", "missed"):
+    if entry.queue_date != business_date(now) or entry.status not in ("done", "cancelled", "skipped", "missed"):
         return
     service = await db.get(Service, entry.service_id)
+    from app.day_closure import is_closed
+    if await is_closed(db, service.institution_id, now):
+        return
     if not service.is_active:
         return
     if entry.status == "done":
@@ -121,13 +130,13 @@ async def open_for_transition(db, entry, now=None):
         return
     # Nie wstawiaj wcześniejszej wizyty kolidującej z obiecanym czasem przybycia.
     confirmed = await db.scalar(select(QueueEntry.id).where(
-        QueueEntry.service_id == service.id, QueueEntry.status == "confirmed",
+        QueueEntry.service_id == service.id, QueueEntry.queue_date == business_date(now), QueueEntry.status == "confirmed",
         QueueEntry.arrival_time < now + timedelta(minutes=max(1, service.standard_duration or 15)),
     ).limit(1))
     if confirmed:
         return
     candidates = (await db.scalars(select(QueueEntry.id).where(
-        QueueEntry.service_id == service.id, QueueEntry.status == "waiting"))).all()
+        QueueEntry.service_id == service.id, QueueEntry.queue_date == business_date(now), QueueEntry.status == "waiting"))).all()
     settings = await settings_for(db, service)
     window = OfferWindow(service_id=service.id, source_entry_id=entry.id, source_event=event,
         created_at=now, expires_at=now + timedelta(minutes=response_minutes(settings) * (len(candidates) + 1)))
@@ -144,7 +153,7 @@ async def visible_offers(db, user_id=None, service_id=None):
         Service, Service.id == QueueEntry.service_id).outerjoin(
         SystemSettings, SystemSettings.institution_id == Service.institution_id).where(
         QueueOffer.status == "pending", QueueOffer.expires_at > now, OfferWindow.status == "active",
-        Service.is_active.is_(True), QueueEntry.status == "waiting")
+        Service.is_active.is_(True), QueueEntry.queue_date == business_date(now), QueueEntry.status == "waiting")
     query = query.where(QueueEntry.client_id == user_id) if user_id else query.where(QueueEntry.service_id == service_id)
     urgent = []
     for offer, entry, service, settings in (await db.execute(query)).all():
@@ -155,12 +164,13 @@ async def visible_offers(db, user_id=None, service_id=None):
                        "expires_at": offer.expires_at.isoformat()+"Z"})
     windows = select(OfferWindow).join(Service, Service.id == OfferWindow.service_id).where(
         Service.is_active.is_(True), OfferWindow.status == "active",
-        OfferWindow.phase == "last_minute", OfferWindow.expires_at > now)
+        OfferWindow.phase == "last_minute", OfferWindow.expires_at > now,
+        OfferWindow.created_at >= day_bounds(business_date(now))[0])
     if service_id:
         windows = windows.where(OfferWindow.service_id == service_id)
     elif user_id:
         windows = windows.where(OfferWindow.service_id.in_(select(QueueEntry.service_id).where(
-            QueueEntry.client_id == user_id, QueueEntry.status == "waiting")))
+            QueueEntry.client_id == user_id, QueueEntry.queue_date == business_date(now), QueueEntry.status == "waiting")))
     last = [{"id": row.id, "service_id": row.service_id, "expires_at": row.expires_at.isoformat()+"Z"}
             for row in (await db.scalars(windows)).all()]
     return {"urgent": urgent, "last_minute": last}

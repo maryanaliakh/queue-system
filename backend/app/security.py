@@ -73,6 +73,7 @@ async def create_session(db, user):
     refresh_token = secrets.token_urlsafe(48)
     now = datetime.utcnow()
 
+    # Jawne typy parametrów zachowują UUID i daty przy zapisie sesji w obu silnikach testowych.
     await db.execute(
         text("""
             INSERT INTO refresh_tokens (
@@ -81,7 +82,8 @@ async def create_session(db, user):
             VALUES (
                 :id, :user_id, :token, :expires_at, :created_at
             )
-        """),
+        """).bindparams(bindparam("id", type_=Uuid), bindparam("user_id", type_=Uuid),
+                         bindparam("expires_at", type_=DateTime), bindparam("created_at", type_=DateTime)),
         {
             "id": session_id,
             "user_id": user.id,

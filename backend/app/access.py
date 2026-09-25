@@ -31,3 +31,10 @@ async def require_employee(db, user, employee_id):
     if employee.employee_status != "active":
         raise HTTPException(403, "Employee is inactive")
     return employee
+
+
+async def require_admin(db, user, institution_id):
+    # Administrator zarządza wyłącznie instytucją, do której aktywnie należy.
+    if user.role != "admin":
+        raise HTTPException(403, "Institution administrator required")
+    await require_institution(db, user, institution_id)

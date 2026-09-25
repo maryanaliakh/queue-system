@@ -9,6 +9,7 @@ node_modules/
 *.pyc
 
 .DS_Store
+# Prywatne konfiguracje i klucze Firebase pozostają poza repozytorium.
 .env.*
 !.env.example
 *-firebase-adminsdk-*.json
